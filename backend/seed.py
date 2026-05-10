@@ -113,15 +113,20 @@ async def seed_all():
 
 
 async def write_test_credentials():
-    """Write test credentials to /app/memory/test_credentials.md."""
-    os.makedirs("/app/memory", exist_ok=True)
+    """Write test credentials to a memory dir (relative or /app)."""
+    # Use /app/memory if writable (preview env), else local ./memory
+    base_dir = "/app/memory" if os.path.isdir("/app") else os.path.join(os.path.dirname(__file__), "..", "memory")
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+    except OSError:
+        return  # silently skip if we can't create the dir
     content = f"""# LumiKids Academy - Test Credentials
 
 ## Admin
 - Email: {os.environ['ADMIN_EMAIL']}
 - Password: {os.environ['ADMIN_PASSWORD']}
 - Role: admin
-- Login → /admin
+- Login -> /admin
 
 ## Sample Teacher
 - Email: sarah@lumikids.com
@@ -149,5 +154,6 @@ async def write_test_credentials():
 ## Public Endpoints
 - POST /api/public/enroll     (enrollment form submission)
 """
-    with open("/app/memory/test_credentials.md", "w") as f:
+    target_path = os.path.join(base_dir, "test_credentials.md")
+    with open(target_path, "w", encoding="utf-8") as f:
         f.write(content)
