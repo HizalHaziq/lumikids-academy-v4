@@ -1,0 +1,100 @@
+{
+  "theme": "Light",
+  "archetype": "3 (Pastel & Soft)",
+  "colors": {
+    "background": "#FFFAF5",
+    "surface": "#FFFFFF",
+    "text": {
+      "primary": "#1E293B",
+      "secondary": "#64748B",
+      "disabled": "#94A3B8"
+    },
+    "brand": {
+      "primary": "#FF8C73",
+      "primary_hover": "#E6755E",
+      "secondary": "#A7E8D0",
+      "secondary_hover": "#8BCCB5"
+    },
+    "accents": {
+      "butter_yellow": "#FDF3B8",
+      "soft_lavender": "#E6DDFA",
+      "baby_blue": "#C4E6FA"
+    },
+    "border": "#F1F5F9",
+    "states": {
+      "success": "#34D399",
+      "warning": "#FBBF24",
+      "error": "#F87171",
+      "info": "#60A5FA"
+    }
+  },
+  "typography": {
+    "heading_font": "Fredoka",
+    "body_font": "Nunito",
+    "rules": {
+      "h1": "text-5xl md:text-6xl font-semibold tracking-tight leading-tight",
+      "h2": "text-3xl md:text-4xl font-semibold tracking-tight",
+      "h3": "text-xl md:text-2xl font-medium",
+      "body": "text-base leading-relaxed text-slate-700",
+      "small": "text-sm text-slate-500",
+      "label": "text-xs font-bold uppercase tracking-[0.1em] text-slate-500"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous spacing. Rounded, safe, friendly, and tactile.",
+    "landing_page": "Asymmetric 'Tetris' bento grids. Large paddings (py-24, gap-12). Focus on storytelling.",
+    "dashboard": "Control room bento grid (grid-cols-1 md:grid-cols-4), tight gaps (gap-6). Every pixel utilized, no jagged bottoms.",
+    "container_padding": "p-6 to p-8 inside cards to prevent text collision. Never cram content."
+  },
+  "surfaces": {
+    "cards": "bg-white rounded-[2rem] border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]",
+    "header": "backdrop-blur-xl bg-white/70 border-b border-white/40 shadow-sm sticky top-0 z-50",
+    "interactive": "hover:-translate-y-1 transition-transform duration-300"
+  },
+  "components": {
+    "button": "rounded-full font-bold transition-all duration-300 active:scale-95",
+    "primary_button": "bg-[#FF8C73] text-white shadow-[0_8px_16px_-4px_rgba(255,140,115,0.4)] hover:bg-[#E6755E]",
+    "secondary_button": "bg-[#A7E8D0] text-[#0F4C35] hover:bg-[#8BCCB5]",
+    "inputs": "rounded-2xl border-slate-200 bg-slate-50 focus:ring-2 focus:ring-[#A7E8D0] focus:border-transparent",
+    "charts": "Use Chart.js. Style dataset colors with: ['#FF8C73', '#A7E8D0', '#FDF3B8', '#E6DDFA', '#C4E6FA']. Use 0 tension for precise data, or high tension for smooth playful curves. Remove grid lines if possible for cleaner look.",
+    "logo": "Build a typography-based logo paired with a Lucide-react icon (e.g., Sun, Smile, or Baby). Make the icon color #FF8C73."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Round, friendly stroke (stroke-width 2.5)"
+  },
+  "image_urls": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1711284882601-57bf062fef7f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwyfHxwYXN0ZWwlMjBjb2xvciUyMGFic3RyYWN0JTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3Nzg0MDYwNzB8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Beige/pastel wavy abstract background",
+      "usage": "Landing page hero section background layer, behind the main content."
+    },
+    "kids_playing_1": {
+      "url": "https://images.unsplash.com/photo-1723750592050-e973050b6ee1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwxfHxraW5kZXJnYXJ0ZW4lMjBraWRzJTIwaGFwcHl8ZW58MHx8fHwxNzc4NDA2MDU4fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Little girl running on grass",
+      "usage": "Landing page featured image (Hero foreground or About Us section)."
+    },
+    "kids_playing_2": {
+      "url": "https://images.unsplash.com/photo-1560130958-0ea787c275de?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODF8MHwxfHNlYXJjaHwyfHxraW5kZXJnYXJ0ZW4lMjBraWRzJTIwaGFwcHl8ZW58MHx8fHwxNzc4NDA2MDU4fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Child drawing",
+      "usage": "Program overview, Curriculum section, or Enrollment CTA image."
+    },
+    "teacher_1": {
+      "url": "https://images.pexels.com/photos/8423062/pexels-photo-8423062.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling female teacher",
+      "usage": "Staff highlight on landing page or teacher profile avatar in the dashboard."
+    },
+    "teacher_2": {
+      "url": "https://images.pexels.com/photos/5212675/pexels-photo-5212675.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Smiling teacher with students",
+      "usage": "Parent testimonials or classroom feature section."
+    }
+  },
+  "instructions_to_main_agent": {
+    "general": "Build a full-stack Kindergarten app. Use pure HTML/Tailwind for Landing Page. Use custom Shadcn UI (with rounded corners) for the multi-role Dashboard (Admin, Teacher, Parent). All React components must be in .js files.",
+    "styling": "Enforce soft corners (`rounded-2xl` or `rounded-[2rem]`). Maintain high contrast for accessibility. Ensure all hover/focus states are defined. Apply `data-testid` to all interactive components.",
+    "fonts": "Integrate 'Fredoka' (headings) and 'Nunito' (body) via Google Fonts in index.html, map them in tailwind.config.js.",
+    "routing_and_auth": "Set up React Router. Enrollment workflow should have a public form. The Dashboard routes should check for the user's role (Admin, Teacher, Parent).",
+    "backend": "Integrate FastAPI endpoints. If specific endpoints are pending, create mocked fetch calls in a dedicated `api.js` file, highlighting them as MOCKED."
+  }
+}
