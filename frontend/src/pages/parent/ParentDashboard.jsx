@@ -341,6 +341,8 @@ function TelegramSetup() {
   const unlink = async () => {
     if (!window.confirm("Stop receiving Telegram alerts?")) return;
     await api.post("/auth/unlink-telegram");
+    setStatus({ ...status, linked: false, chat_id: null });
+    setChatId("");
     toast.success("Unlinked");
     load();
   };
