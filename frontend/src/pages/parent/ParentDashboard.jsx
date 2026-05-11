@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
-import { LayoutDashboard, Baby, ClipboardCheck, MessageCircle, Send } from "lucide-react";
+import { LayoutDashboard, Baby, ClipboardCheck, MessageCircle, Send, Megaphone, Bell } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { toast } from "sonner";
 import DashboardLayout from "../../components/DashboardLayout";
@@ -11,14 +11,18 @@ const NAV = [
   { to: "/parent", label: "Dashboard", icon: LayoutDashboard },
   { to: "/parent/child", label: "My Child", icon: Baby },
   { to: "/parent/attendance", label: "Attendance", icon: ClipboardCheck },
+  { to: "/parent/announcements", label: "Announcements", icon: Megaphone },
   { to: "/parent/messages", label: "Messages", icon: MessageCircle },
+  { to: "/parent/alerts", label: "Telegram Alerts", icon: Bell },
 ];
 
 const TITLES = {
   "/parent": "Parent Dashboard",
   "/parent/child": "My Child",
   "/parent/attendance": "Attendance",
+  "/parent/announcements": "Announcements",
   "/parent/messages": "Messages",
+  "/parent/alerts": "Telegram Alert Setup",
 };
 
 export default function ParentDashboard() {
@@ -29,7 +33,9 @@ export default function ParentDashboard() {
         <Route index element={<Overview />} />
         <Route path="child" element={<ChildPage />} />
         <Route path="attendance" element={<AttendancePage />} />
+        <Route path="announcements" element={<AnnouncementsList />} />
         <Route path="messages" element={<Messages />} />
+        <Route path="alerts" element={<TelegramSetup />} />
       </Routes>
     </DashboardLayout>
   );
@@ -61,9 +67,14 @@ function ChildSummary({ child }) {
   return (
     <div className="card-soft p-6">
       <div className="flex items-center gap-4 mb-4">
-        <div className="w-16 h-16 rounded-2xl bg-[#FFD4C7] flex items-center justify-center font-heading text-2xl font-semibold">
-          {child.name[0]}
-        </div>
+        {child.photo_url ? (
+          <img src={`${process.env.REACT_APP_BACKEND_URL}${child.photo_url}`} alt={child.name}
+            className="w-16 h-16 rounded-2xl object-cover" />
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-[#FFD4C7] flex items-center justify-center font-heading text-2xl font-semibold">
+            {child.name[0]}
+          </div>
+        )}
         <div>
           <h3 className="font-heading text-xl font-semibold">{child.name}</h3>
           <p className="text-sm text-slate-500">Age {child.age} • {child.class_name || "No class"}</p>
@@ -90,9 +101,14 @@ function ChildPage() {
       {data.children.map((c) => (
         <div key={c.id} className="card-soft p-8">
           <div className="flex items-center gap-6 mb-6">
-            <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#FFD4C7] to-[#FDF3B8] flex items-center justify-center font-heading text-5xl font-semibold">
-              {c.name[0]}
-            </div>
+            {c.photo_url ? (
+              <img src={`${process.env.REACT_APP_BACKEND_URL}${c.photo_url}`} alt={c.name}
+                className="w-24 h-24 rounded-3xl object-cover" />
+            ) : (
+              <div className="w-24 h-24 rounded-3xl bg-gradient-to-br from-[#FFD4C7] to-[#FDF3B8] flex items-center justify-center font-heading text-5xl font-semibold">
+                {c.name[0]}
+              </div>
+            )}
             <div>
               <h2 className="font-heading text-3xl font-semibold">{c.name}</h2>
               <p className="text-slate-600">{c.age} years old{c.gender ? ` • ${c.gender}` : ""}</p>
@@ -270,6 +286,122 @@ function Messages() {
         ) : (
           <div className="flex-1 flex items-center justify-center text-slate-400">Select a teacher</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementsList() {
+  const [items, setItems] = useState([]);
+  useEffect(() => { api.get("/announcements").then((r) => setItems(r.data)); }, []);
+  return (
+    <div className="grid md:grid-cols-2 gap-4" data-testid="parent-announcements-list">
+      {items.map((a) => (
+        <div key={a.id} className="card-soft p-6">
+          <h3 className="font-heading text-lg font-semibold flex items-center gap-2 mb-2">📢 {a.title}</h3>
+          {a.description && <p className="text-sm text-slate-600 mb-3">{a.description}</p>}
+          <div className="text-sm space-y-1 text-slate-500">
+            {a.scheduled_at && <p>🗓 {new Date(a.scheduled_at).toLocaleString()}</p>}
+            {a.location && <p>📍 {a.location}</p>}
+            <p className="text-xs">By {a.created_by_name}</p>
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && <p className="col-span-2 text-center text-slate-500 py-12">No announcements yet.</p>}
+    </div>
+  );
+}
+
+function TelegramSetup() {
+  const [status, setStatus] = useState(null);
+  const [chatId, setChatId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = () => api.get("/auth/telegram-status").then((r) => {
+    setStatus(r.data);
+    setChatId(r.data.chat_id || "");
+  });
+  useEffect(() => { load(); }, []);
+
+  const link = async () => {
+    if (!chatId.trim()) { toast.error("Please enter your Telegram Chat ID"); return; }
+    setSaving(true);
+    try {
+      const r = await api.post("/auth/link-telegram", { chat_id: chatId.trim() });
+      if (r.data.test_message_sent) {
+        toast.success("Linked! Check your Telegram for a test message ✅");
+      } else {
+        toast.success("Chat ID saved. (Test message failed - check bot token in .env)");
+      }
+      load();
+    } catch (err) { toast.error(formatApiError(err)); }
+    finally { setSaving(false); }
+  };
+
+  const unlink = async () => {
+    if (!window.confirm("Stop receiving Telegram alerts?")) return;
+    await api.post("/auth/unlink-telegram");
+    toast.success("Unlinked");
+    load();
+  };
+
+  if (!status) return <p>Loading...</p>;
+  const botUsername = status.bot_username || "your_bot";
+
+  return (
+    <div className="grid lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 space-y-6">
+        <div className="card-soft p-6" data-testid="telegram-status-card">
+          <h3 className="font-heading text-xl font-semibold mb-2 flex items-center gap-2">
+            🤖 Telegram Absence Alerts
+          </h3>
+          <p className="text-sm text-slate-500 mb-4">
+            Get instant notifications on Telegram when your child is marked absent or late.
+          </p>
+          {status.linked ? (
+            <div className="space-y-4">
+              <div className="bg-[#A7E8D0] rounded-2xl p-4 flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-[#0F4C35] animate-pulse" />
+                <div>
+                  <p className="font-bold text-[#0F4C35]">✅ Connected</p>
+                  <p className="text-xs text-[#0F4C35]">Chat ID: {status.chat_id}</p>
+                </div>
+              </div>
+              <button onClick={unlink} data-testid="telegram-unlink-btn"
+                className="rounded-full px-6 py-2.5 bg-red-100 text-red-700 font-bold hover:bg-red-200">
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">
+                  Your Telegram Chat ID
+                </label>
+                <input type="text" value={chatId} onChange={(e) => setChatId(e.target.value)}
+                  placeholder="e.g. 123456789"
+                  data-testid="telegram-chatid-input"
+                  className="w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-[#A7E8D0]" />
+              </div>
+              <button onClick={link} disabled={saving} data-testid="telegram-link-btn"
+                className="btn-primary disabled:opacity-50">
+                {saving ? "Linking..." : "🔗 Link Telegram"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card-soft p-6 bg-[#FDF3B8]">
+        <h4 className="font-heading text-lg font-semibold mb-3">📋 How to set up</h4>
+        <ol className="text-sm space-y-3 text-slate-700">
+          <li><strong>1.</strong> Open Telegram and search for <code className="bg-white px-2 py-0.5 rounded">@{botUsername || "your_lumikids_bot"}</code></li>
+          <li><strong>2.</strong> Tap <strong>Start</strong> to begin a chat</li>
+          <li><strong>3.</strong> Send the bot any message (e.g. "hi")</li>
+          <li><strong>4.</strong> Now message <code className="bg-white px-2 py-0.5 rounded">@userinfobot</code> to find <strong>your Chat ID</strong></li>
+          <li><strong>5.</strong> Copy the number and paste it here</li>
+          <li><strong>6.</strong> Click <strong>Link Telegram</strong> — you'll get a test message ✨</li>
+        </ol>
       </div>
     </div>
   );

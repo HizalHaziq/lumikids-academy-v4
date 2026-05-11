@@ -1,0 +1,44 @@
+{
+  "summary": "All 3 new features (student photo upload, announcements, telegram alerts) tested end-to-end. Backend: 19/19 new pytest cases pass (100%). Frontend: admin can create announcement and upload student photo; teacher sees target_role IN ('all','teacher') announcements; parent sees target_role IN ('all','parent') announcements; parent Telegram Alerts page renders with chat_id input + setup instructions card and supports link/unlink (backend confirmed). Role-based access guards on /admin/* and /admin/announcements are enforced (403 for teacher).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/students/{id}/photo", "issue": "Previous photo files are not deleted from disk when a new one is uploaded (orphan files accumulate in uploads/students/). Low priority for an MVP."},
+      {"endpoint": "/api/auth/link-telegram", "issue": "Endpoint is exposed to any authenticated role (admin/teacher/parent), not just parents. Not a security risk but conceptually it is a parent-only feature."},
+      {"endpoint": "/api/admin/announcements POST", "issue": "Notification fan-out is done with one INSERT per recipient in a python loop; fine for small academies but should be batched / moved to background task for scale."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TelegramSetup (Parent /parent/alerts)", "issue": "After clicking 'Disconnect', the status card visually still shows '✅ Connected, Chat ID: 987654321' for a moment until refetch — the UI does not optimistically clear or call refetch right after unlink. Backend state is correct (verified by pytest test_unlink_telegram). Recommend calling refetch/setLinked(false) immediately after unlink success.", "selector": "[data-testid=\"telegram-status-card\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/pytest_new_features.xml"
+  ],
+  "action_items": [
+    "(Optional) On link/unlink success in TelegramSetup component, immediately refetch /api/auth/telegram-status (or update local state) so the status card reflects the new state without delay.",
+    "(Optional) Delete previous photo file from disk when /api/admin/students/{id}/photo replaces it.",
+    "(Optional) Restrict /api/auth/link-telegram / unlink to role='parent' only, since only parents are intended users."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~966 lines and clearly exceeds the 700-line guideline; should be split into routers (auth, admin, teacher, parent, messages, announcements, uploads, telegram).",
+    "Photo upload writes synchronously to disk inside an async endpoint via blocking 'with open(...)'; for larger files, use aiofiles or run in a threadpool.",
+    "5 MB limit is enforced after fully reading the upload into memory; for safety use file.size or stream chunks.",
+    "Announcements fan-out and the attendance bulk notification block use synchronous DB calls inside an async loop without batching — acceptable now but should be a single INSERT ... VALUES (...), (...) for scale.",
+    "telegram_bot.send_telegram_message is invoked for absent/late in a BG task, but the in-app notification insert is done inline; if a parent has multiple late kids it could be slow on big classes."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py (created - 19 pytest cases for photo upload + announcements + telegram + attendance notification)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "~95%"},
+  "test_credentials": "/app/memory/test_credentials.md — admin/teachers/parents all valid.",
+  "seed_data_creation": "Created via tests: 3 TEST_-prefixed announcements (all subsequently deleted in test_admin_delete_announcement), 1 UI_TEST_Announcement (still in DB), 1 uploaded photo file in /app/backend/uploads/students/ for student id=1, telegram_chat_id linked then unlinked for michael@example.com, 1 attendance notification for emma's child marked absent on 2026-01-15.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New pytest suite at /app/backend/tests/test_new_features.py (19 cases) covers photo upload (success/invalid type/non-admin/not-found), announcements (admin CRUD + role-scoped GET + notification fan-out + RBAC), telegram link/status/unlink, and bulk-attendance-creates-parent-notification. Frontend testids verified working: add-announcement-btn, announcements-list, ann-title/description/scheduled/location/target/save-btn, upload-photo-{id} (with hidden file input), telegram-status-card, telegram-chatid-input, telegram-link-btn, telegram-unlink-btn, parent-announcements-list, teacher-announcements-list, nav-telegram-alerts, nav-announcements. The only observed frontend nit is that the Telegram status card doesn't refresh instantly after Disconnect (state lingers visually).",
+  "rca_of_the_issue": "No critical bugs. UI display lag on telegram disconnect: the TelegramSetup component likely doesn't re-fetch /api/auth/telegram-status nor clear local state right after the unlink fetch resolves; backend is correct."
+}

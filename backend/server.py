@@ -3,6 +3,7 @@ import os
 import secrets
 import string
 import logging
+import uuid
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, List
@@ -11,8 +12,9 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field
 
 import database
@@ -24,7 +26,12 @@ from auth import (
     require_role,
 )
 import mailer
+import telegram_bot
 import seed as seed_mod
+
+# Uploads directory
+UPLOAD_DIR = ROOT_DIR / "uploads"
+(UPLOAD_DIR / "students").mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -122,6 +129,18 @@ class EnrollmentDecisionIn(BaseModel):
 
 class PasswordChangeIn(BaseModel):
     new_password: str = Field(min_length=6)
+
+
+class TelegramLinkIn(BaseModel):
+    chat_id: str = Field(min_length=1, max_length=50)
+
+
+class AnnouncementIn(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    location: Optional[str] = None
+    target_role: str = "all"  # all/teacher/parent
 
 
 # ============================================================
@@ -542,7 +561,7 @@ async def teacher_attendance(
 
 
 @api.post("/teacher/attendance/bulk")
-async def teacher_record_attendance(body: AttendanceBulkIn, user: dict = Depends(require_role("teacher"))):
+async def teacher_record_attendance(body: AttendanceBulkIn, bg: BackgroundTasks, user: dict = Depends(require_role("teacher"))):
     # Verify teacher owns the class
     cls = await database.fetch_one(
         "SELECT id FROM classes WHERE id = %s AND teacher_id = %s", (body.class_id, user["id"])
@@ -559,6 +578,33 @@ async def teacher_record_attendance(body: AttendanceBulkIn, user: dict = Depends
                ON DUPLICATE KEY UPDATE status = VALUES(status), notes = VALUES(notes), recorded_by = VALUES(recorded_by)""",
             (r.student_id, body.class_id, body.date, r.status, r.notes, user["id"]),
         )
+
+        # Send Telegram alert for absent/late students
+        if r.status in ("absent", "late"):
+            student = await database.fetch_one(
+                """SELECT s.name AS child_name, u.telegram_chat_id, u.id AS parent_id
+                   FROM students s LEFT JOIN users u ON u.id = s.parent_id
+                   WHERE s.id = %s""",
+                (r.student_id,),
+            )
+            if student and student.get("telegram_chat_id"):
+                msg_fn = telegram_bot.absence_message if r.status == "absent" else telegram_bot.late_message
+                bg.add_task(
+                    telegram_bot.send_telegram_message,
+                    student["telegram_chat_id"],
+                    msg_fn(student["child_name"], str(body.date)),
+                )
+            # Also create in-app notification for the parent
+            if student and student.get("parent_id"):
+                await database.execute(
+                    "INSERT INTO notifications (user_id, type, title, message) VALUES (%s, 'attendance', %s, %s)",
+                    (
+                        student["parent_id"],
+                        f"Attendance: {r.status.capitalize()}",
+                        f"{student['child_name']} was marked {r.status} on {body.date}",
+                    ),
+                )
+
     return {"ok": True, "count": len(body.records)}
 
 
@@ -730,6 +776,140 @@ async def mark_all_read(user: dict = Depends(get_current_user)):
 
 
 # ============================================================
+# Photo Upload (Admin)
+# ============================================================
+@api.post("/admin/students/{student_id}/photo")
+async def upload_student_photo(
+    student_id: int,
+    file: UploadFile = File(...),
+    _: dict = Depends(require_role("admin")),
+):
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Only image files are allowed")
+
+    # Validate student exists
+    student = await database.fetch_one("SELECT id FROM students WHERE id = %s", (student_id,))
+    if not student:
+        raise HTTPException(404, "Student not found")
+
+    # Save file with unique name
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "png"
+    if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
+        ext = "png"
+    fname = f"{student_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    fpath = UPLOAD_DIR / "students" / fname
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 5 MB)")
+    with open(fpath, "wb") as f:
+        f.write(contents)
+
+    photo_url = f"/api/uploads/students/{fname}"
+    await database.execute(
+        "UPDATE students SET photo_url = %s WHERE id = %s", (photo_url, student_id)
+    )
+    return {"ok": True, "photo_url": photo_url}
+
+
+# ============================================================
+# Announcements (Admin creates, all see)
+# ============================================================
+@api.get("/admin/announcements")
+async def admin_list_announcements(_: dict = Depends(require_role("admin"))):
+    return await database.fetch_all(
+        """SELECT a.*, u.name AS created_by_name FROM announcements a
+           LEFT JOIN users u ON u.id = a.created_by ORDER BY a.scheduled_at DESC, a.created_at DESC"""
+    )
+
+
+@api.post("/admin/announcements")
+async def admin_create_announcement(body: AnnouncementIn, user: dict = Depends(require_role("admin"))):
+    if body.target_role not in ("all", "teacher", "parent"):
+        raise HTTPException(400, "Invalid target_role")
+    aid = await database.execute(
+        """INSERT INTO announcements (title, description, scheduled_at, location, target_role, created_by)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (body.title, body.description, body.scheduled_at, body.location, body.target_role, user["id"]),
+    )
+
+    # Send in-app notification to all target users
+    if body.target_role == "all":
+        recipients = await database.fetch_all("SELECT id FROM users WHERE role IN ('teacher','parent')")
+    else:
+        recipients = await database.fetch_all("SELECT id FROM users WHERE role = %s", (body.target_role,))
+    for r in recipients:
+        await database.execute(
+            "INSERT INTO notifications (user_id, type, title, message) VALUES (%s, 'announcement', %s, %s)",
+            (r["id"], f"📢 {body.title}", body.description or "New announcement from admin"),
+        )
+    return {"id": aid, "ok": True}
+
+
+@api.delete("/admin/announcements/{aid}")
+async def admin_delete_announcement(aid: int, _: dict = Depends(require_role("admin"))):
+    await database.execute("DELETE FROM announcements WHERE id = %s", (aid,))
+    return {"ok": True}
+
+
+@api.get("/announcements")
+async def list_announcements(user: dict = Depends(get_current_user)):
+    """Teachers and parents view their announcements."""
+    role = user["role"]
+    if role == "admin":
+        rows = await database.fetch_all(
+            """SELECT a.*, u.name AS created_by_name FROM announcements a
+               LEFT JOIN users u ON u.id = a.created_by ORDER BY a.scheduled_at DESC, a.created_at DESC"""
+        )
+    else:
+        rows = await database.fetch_all(
+            """SELECT a.*, u.name AS created_by_name FROM announcements a
+               LEFT JOIN users u ON u.id = a.created_by
+               WHERE a.target_role IN ('all', %s)
+               ORDER BY a.scheduled_at DESC, a.created_at DESC""",
+            (role,),
+        )
+    return rows
+
+
+# ============================================================
+# Telegram linking (Parent)
+# ============================================================
+@api.post("/auth/link-telegram")
+async def link_telegram(body: TelegramLinkIn, user: dict = Depends(get_current_user)):
+    await database.execute(
+        "UPDATE users SET telegram_chat_id = %s WHERE id = %s", (body.chat_id, user["id"])
+    )
+    # Send confirmation message
+    sent = await telegram_bot.send_telegram_message(
+        body.chat_id,
+        f"✅ <b>LumiKids Linked!</b>\n\nHi {user['name']}, your account is now linked. "
+        f"You'll receive instant alerts when your child is absent or late.",
+    )
+    return {"ok": True, "test_message_sent": sent}
+
+
+@api.post("/auth/unlink-telegram")
+async def unlink_telegram(user: dict = Depends(get_current_user)):
+    await database.execute(
+        "UPDATE users SET telegram_chat_id = NULL WHERE id = %s", (user["id"],)
+    )
+    return {"ok": True}
+
+
+@api.get("/auth/telegram-status")
+async def telegram_status(user: dict = Depends(get_current_user)):
+    row = await database.fetch_one(
+        "SELECT telegram_chat_id FROM users WHERE id = %s", (user["id"],)
+    )
+    return {
+        "linked": bool(row and row.get("telegram_chat_id")),
+        "chat_id": row.get("telegram_chat_id") if row else None,
+        "bot_username": os.environ.get("TELEGRAM_BOT_USERNAME", ""),
+    }
+
+
+# ============================================================
 # Helpers (lookups for forms)
 # ============================================================
 @api.get("/lookup/teachers")
@@ -758,6 +938,9 @@ async def lookup_students_by_class(class_id: int, _: dict = Depends(get_current_
 # Mount and middleware
 # ============================================================
 app.include_router(api)
+
+# Serve uploaded files
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,

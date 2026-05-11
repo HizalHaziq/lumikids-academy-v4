@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
-import { LayoutDashboard, GraduationCap, ClipboardCheck, FileText, MessageCircle, Send } from "lucide-react";
+import { LayoutDashboard, GraduationCap, ClipboardCheck, FileText, MessageCircle, Send, Megaphone } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { toast } from "sonner";
 import DashboardLayout from "../../components/DashboardLayout";
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/teacher/students", label: "Students", icon: GraduationCap },
   { to: "/teacher/attendance", label: "Attendance", icon: ClipboardCheck },
   { to: "/teacher/reports", label: "Reports", icon: FileText },
+  { to: "/teacher/announcements", label: "Announcements", icon: Megaphone },
   { to: "/teacher/messages", label: "Messages", icon: MessageCircle },
 ];
 const TITLES = {
@@ -19,6 +20,7 @@ const TITLES = {
   "/teacher/students": "My Students",
   "/teacher/attendance": "Record Attendance",
   "/teacher/reports": "Attendance Reports",
+  "/teacher/announcements": "Announcements",
   "/teacher/messages": "Parent Messages",
 };
 
@@ -31,6 +33,7 @@ export default function TeacherDashboard() {
         <Route path="students" element={<StudentsList />} />
         <Route path="attendance" element={<AttendanceRecord />} />
         <Route path="reports" element={<TReports />} />
+        <Route path="announcements" element={<AnnouncementsList />} />
         <Route path="messages" element={<Messages />} />
       </Routes>
     </DashboardLayout>
@@ -87,9 +90,14 @@ function StudentsList() {
       {students.map((s) => (
         <div key={s.id} className="card-soft p-6">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-12 h-12 rounded-2xl bg-[#A7E8D0] flex items-center justify-center font-heading font-bold text-lg text-[#0F4C35]">
-              {s.name[0]}
-            </div>
+            {s.photo_url ? (
+              <img src={`${process.env.REACT_APP_BACKEND_URL}${s.photo_url}`} alt={s.name}
+                className="w-12 h-12 rounded-2xl object-cover" />
+            ) : (
+              <div className="w-12 h-12 rounded-2xl bg-[#A7E8D0] flex items-center justify-center font-heading font-bold text-lg text-[#0F4C35]">
+                {s.name[0]}
+              </div>
+            )}
             <div>
               <p className="font-heading font-semibold">{s.name}</p>
               <p className="text-xs text-slate-500">Age {s.age} • {s.class_name}</p>
@@ -100,6 +108,27 @@ function StudentsList() {
         </div>
       ))}
       {students.length === 0 && <p className="col-span-3 text-center text-slate-500 py-12">No students assigned yet.</p>}
+    </div>
+  );
+}
+
+function AnnouncementsList() {
+  const [items, setItems] = useState([]);
+  useEffect(() => { api.get("/announcements").then((r) => setItems(r.data)); }, []);
+  return (
+    <div className="grid md:grid-cols-2 gap-4" data-testid="teacher-announcements-list">
+      {items.map((a) => (
+        <div key={a.id} className="card-soft p-6">
+          <h3 className="font-heading text-lg font-semibold flex items-center gap-2 mb-2">📢 {a.title}</h3>
+          {a.description && <p className="text-sm text-slate-600 mb-3">{a.description}</p>}
+          <div className="text-sm space-y-1 text-slate-500">
+            {a.scheduled_at && <p>🗓 {new Date(a.scheduled_at).toLocaleString()}</p>}
+            {a.location && <p>📍 {a.location}</p>}
+            <p className="text-xs">By {a.created_by_name}</p>
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && <p className="col-span-2 text-center text-slate-500 py-12">No announcements yet.</p>}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, GraduationCap, BookOpen, FileText, Inbox } from "lucide-react";
+import { LayoutDashboard, Users, GraduationCap, BookOpen, FileText, Inbox, Megaphone } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
 import { toast } from "sonner";
 import DashboardLayout from "../../components/DashboardLayout";
-import api, { formatApiError } from "../../lib/api";
+import api, { formatApiError, API_BASE } from "../../lib/api";
 
 const NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/admin/students", label: "Students", icon: GraduationCap },
   { to: "/admin/classes", label: "Classes", icon: BookOpen },
   { to: "/admin/enrollments", label: "Enrollments", icon: Inbox },
+  { to: "/admin/announcements", label: "Announcements", icon: Megaphone },
   { to: "/admin/reports", label: "Reports", icon: FileText },
 ];
 
@@ -21,6 +22,7 @@ const TITLES = {
   "/admin/students": "Manage Students",
   "/admin/classes": "Manage Classes",
   "/admin/enrollments": "Enrollment Requests",
+  "/admin/announcements": "Announcements & Meetings",
   "/admin/reports": "Reports & Analytics",
 };
 
@@ -36,6 +38,7 @@ export default function AdminDashboard() {
         <Route path="students" element={<StudentsPage />} />
         <Route path="classes" element={<ClassesPage />} />
         <Route path="enrollments" element={<EnrollmentsPage />} />
+        <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="reports" element={<ReportsPage />} />
       </Routes>
     </DashboardLayout>
@@ -245,9 +248,17 @@ function StudentsPage() {
         {students.map((s) => (
           <div key={s.id} className="card-soft p-6">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#FFD4C7] flex items-center justify-center font-heading font-bold text-lg">
-                {s.name[0]}
-              </div>
+              {s.photo_url ? (
+                <img
+                  src={`${process.env.REACT_APP_BACKEND_URL}${s.photo_url}`}
+                  alt={s.name}
+                  className="w-12 h-12 rounded-2xl object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-[#FFD4C7] flex items-center justify-center font-heading font-bold text-lg">
+                  {s.name[0]}
+                </div>
+              )}
               <div>
                 <p className="font-heading font-semibold">{s.name}</p>
                 <p className="text-xs text-slate-500">Age {s.age} {s.gender && `• ${s.gender}`}</p>
@@ -257,9 +268,10 @@ function StudentsPage() {
               <p><span className="text-slate-400">Class:</span> {s.class_name || "—"}</p>
               <p><span className="text-slate-400">Parent:</span> {s.parent_name || "—"}</p>
             </div>
-            <div className="flex gap-2 mt-4">
+            <div className="flex gap-2 mt-4 items-center flex-wrap">
               <button onClick={() => startEdit(s)} className="text-sm font-bold text-[#FF8C73]">Edit</button>
               <button onClick={() => handleDelete(s.id)} className="text-sm font-bold text-red-500">Delete</button>
+              <PhotoUploader studentId={s.id} onUploaded={load} />
             </div>
           </div>
         ))}
@@ -525,4 +537,130 @@ function Modal({ children, title, onClose }) {
 
 function Loading() {
   return <div className="py-20 text-center text-slate-500">Loading...</div>;
+}
+
+function PhotoUploader({ studentId, onUploaded }) {
+  const [uploading, setUploading] = useState(false);
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await api.post(`/admin/students/${studentId}/photo`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success("Photo uploaded!");
+      onUploaded && onUploaded();
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+  return (
+    <label className="text-sm font-bold text-[#0F4C35] cursor-pointer hover:underline" data-testid={`upload-photo-${studentId}`}>
+      {uploading ? "Uploading..." : "📷 Photo"}
+      <input type="file" accept="image/*" onChange={onFile} className="hidden" disabled={uploading} />
+    </label>
+  );
+}
+
+function AnnouncementsPage() {
+  const [items, setItems] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ title: "", description: "", location: "", scheduled_at: "", target_role: "all" });
+
+  const load = () => api.get("/admin/announcements").then((r) => setItems(r.data));
+  useEffect(() => { load(); }, []);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        ...form,
+        scheduled_at: form.scheduled_at || null,
+      };
+      await api.post("/admin/announcements", payload);
+      toast.success("Announcement sent!");
+      setShowForm(false);
+      setForm({ title: "", description: "", location: "", scheduled_at: "", target_role: "all" });
+      load();
+    } catch (err) { toast.error(formatApiError(err)); }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this announcement?")) return;
+    await api.delete(`/admin/announcements/${id}`);
+    toast.success("Deleted");
+    load();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <p className="text-slate-500">{items.length} announcements</p>
+        <button data-testid="add-announcement-btn" onClick={() => setShowForm(true)} className="btn-primary">+ New Announcement</button>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4" data-testid="announcements-list">
+        {items.map((a) => (
+          <div key={a.id} className="card-soft p-6">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="font-heading text-lg font-semibold flex items-center gap-2">📢 {a.title}</h3>
+              <span className={`px-3 py-1 rounded-full text-xs font-bold capitalize ${
+                a.target_role === "all" ? "bg-[#FDF3B8]" :
+                a.target_role === "teacher" ? "bg-[#C4E6FA]" : "bg-[#E6DDFA]"
+              }`}>
+                {a.target_role === "all" ? "Everyone" : a.target_role + "s"}
+              </span>
+            </div>
+            {a.description && <p className="text-sm text-slate-600 mb-3">{a.description}</p>}
+            <div className="text-sm space-y-1 text-slate-500">
+              {a.scheduled_at && <p>🗓 {new Date(a.scheduled_at).toLocaleString()}</p>}
+              {a.location && <p>📍 {a.location}</p>}
+              <p className="text-xs">By {a.created_by_name} • {new Date(a.created_at).toLocaleDateString()}</p>
+            </div>
+            <button onClick={() => handleDelete(a.id)} className="text-sm font-bold text-red-500 mt-3">Delete</button>
+          </div>
+        ))}
+        {items.length === 0 && <p className="text-slate-500 col-span-2 text-center py-12">No announcements yet.</p>}
+      </div>
+
+      {showForm && (
+        <Modal onClose={() => setShowForm(false)} title="New Announcement / Meeting">
+          <form onSubmit={handleSave} className="space-y-4" data-testid="announcement-form">
+            <FormInput label="Title" value={form.title} onChange={(v) => setForm({ ...form, title: v })} required testid="ann-title" />
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">Description</label>
+              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                rows={3} className="w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 outline-none resize-none" data-testid="ann-description" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">Scheduled At</label>
+                <input type="datetime-local" value={form.scheduled_at}
+                  onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })}
+                  data-testid="ann-scheduled"
+                  className="w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 outline-none" />
+              </div>
+              <FormInput label="Location" value={form.location} onChange={(v) => setForm({ ...form, location: v })} placeholder="e.g. Main Hall" testid="ann-location" />
+            </div>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">Notify</label>
+              <select value={form.target_role} onChange={(e) => setForm({ ...form, target_role: e.target.value })}
+                data-testid="ann-target"
+                className="w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 outline-none">
+                <option value="all">Everyone (Teachers + Parents)</option>
+                <option value="teacher">Teachers only</option>
+                <option value="parent">Parents only</option>
+              </select>
+            </div>
+            <button type="submit" className="btn-primary w-full" data-testid="ann-save-btn">Send Announcement</button>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
 }

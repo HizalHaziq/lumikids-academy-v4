@@ -165,7 +165,37 @@ SCHEMA = [
         INDEX idx_user_read (user_id, is_read)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     """,
+    """
+    CREATE TABLE IF NOT EXISTS announcements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(200) NOT NULL,
+        description TEXT,
+        scheduled_at DATETIME,
+        location VARCHAR(255),
+        target_role ENUM('all','teacher','parent') NOT NULL DEFAULT 'all',
+        created_by INT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+        INDEX idx_scheduled (scheduled_at),
+        INDEX idx_target (target_role)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    """,
 ]
+
+
+async def _ensure_columns():
+    """Add columns that may not exist on older schemas (idempotent)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # telegram_chat_id on users
+            await cur.execute(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME='users' AND COLUMN_NAME='telegram_chat_id'"
+            )
+            (count,) = await cur.fetchone()
+            if count == 0:
+                await cur.execute("ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(50) NULL")
 
 
 async def init_schema():
@@ -174,3 +204,4 @@ async def init_schema():
         async with conn.cursor() as cur:
             for stmt in SCHEMA:
                 await cur.execute(stmt)
+    await _ensure_columns()
