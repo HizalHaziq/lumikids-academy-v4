@@ -1,28 +1,33 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
-import { LayoutDashboard, Baby, ClipboardCheck, MessageCircle, Send, Megaphone, Bell } from "lucide-react";
+import { LayoutDashboard, Baby, ClipboardCheck, MessageCircle, Send, Megaphone, Bell, Settings, Camera } from "lucide-react"; // <-- Added Camera
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { toast } from "sonner";
 import DashboardLayout from "../../components/DashboardLayout";
 import api, { formatApiError } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
+import ActivityFeed from "../../components/ActivityFeed"; // <-- Added Activity Feed
 
 const NAV = [
   { to: "/parent", label: "Dashboard", icon: LayoutDashboard },
   { to: "/parent/child", label: "My Child", icon: Baby },
   { to: "/parent/attendance", label: "Attendance", icon: ClipboardCheck },
+  { to: "/parent/feed", label: "School Feed", icon: Camera }, // <-- Added School Feed
   { to: "/parent/announcements", label: "Announcements", icon: Megaphone },
   { to: "/parent/messages", label: "Messages", icon: MessageCircle },
   { to: "/parent/alerts", label: "Telegram Alerts", icon: Bell },
+  { to: "/parent/settings", label: "Settings", icon: Settings },
 ];
 
 const TITLES = {
   "/parent": "Parent Dashboard",
   "/parent/child": "My Child",
   "/parent/attendance": "Attendance",
+  "/parent/feed": "School Feed", // <-- Added Title
   "/parent/announcements": "Announcements",
   "/parent/messages": "Messages",
   "/parent/alerts": "Telegram Alert Setup",
+  "/parent/settings": "Account Settings",
 };
 
 export default function ParentDashboard() {
@@ -33,9 +38,11 @@ export default function ParentDashboard() {
         <Route index element={<Overview />} />
         <Route path="child" element={<ChildPage />} />
         <Route path="attendance" element={<AttendancePage />} />
+        <Route path="feed" element={<ActivityFeed />} /> {/* <-- Added Route */}
         <Route path="announcements" element={<AnnouncementsList />} />
         <Route path="messages" element={<Messages />} />
         <Route path="alerts" element={<TelegramSetup />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Routes>
     </DashboardLayout>
   );
@@ -404,6 +411,86 @@ function TelegramSetup() {
           <li><strong>5.</strong> Copy the number and paste it here</li>
           <li><strong>6.</strong> Click <strong>Link Telegram</strong> — you'll get a test message ✨</li>
         </ol>
+      </div>
+    </div>
+  );
+}
+
+function SettingsPage() {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    
+    if (password !== confirm) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.post("/auth/change-password", { new_password: password });
+      toast.success("Password updated successfully! 🎉");
+      setPassword("");
+      setConfirm("");
+    } catch (err) {
+      toast.error(formatApiError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <div className="card-soft p-6">
+        <h3 className="font-heading text-xl font-semibold mb-4 flex items-center gap-2">
+          🔒 Change Password
+        </h3>
+        <p className="text-sm text-slate-500 mb-6">
+          Update the password you use to log into the Parent Portal.
+        </p>
+        
+        <form onSubmit={handlePasswordChange} className="space-y-4">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">
+              New Password
+            </label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter new password"
+              className="w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-[#A7E8D0]"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">
+              Confirm New Password
+            </label>
+            <input
+              type="password"
+              required
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Type it again to confirm"
+              className="w-full rounded-2xl border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:ring-2 focus:ring-[#A7E8D0]"
+            />
+          </div>
+          <button 
+            type="submit" 
+            disabled={loading} 
+            className="btn-primary w-full mt-2 disabled:opacity-50"
+          >
+            {loading ? "Updating..." : "Update Password"}
+          </button>
+        </form>
       </div>
     </div>
   );

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, GraduationCap, BookOpen, FileText, Inbox, Megaphone } from "lucide-react";
+import { LayoutDashboard, Users, GraduationCap, BookOpen, FileText, Inbox, Megaphone, Camera } from "lucide-react"; 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
 import { toast } from "sonner";
 import DashboardLayout from "../../components/DashboardLayout";
 import api, { formatApiError, API_BASE } from "../../lib/api";
+import ActivityFeed from "../../components/ActivityFeed"; 
 
 const NAV = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -14,6 +15,7 @@ const NAV = [
   { to: "/admin/enrollments", label: "Enrollments", icon: Inbox },
   { to: "/admin/announcements", label: "Announcements", icon: Megaphone },
   { to: "/admin/reports", label: "Reports", icon: FileText },
+  { to: "/admin/feed", label: "Activity Feed", icon: Camera }, // <-- Added Activity Feed
 ];
 
 const TITLES = {
@@ -24,6 +26,7 @@ const TITLES = {
   "/admin/enrollments": "Enrollment Requests",
   "/admin/announcements": "Announcements & Meetings",
   "/admin/reports": "Reports & Analytics",
+  "/admin/feed": "School Activity Feed", // <-- Added Title
 };
 
 const COLORS = ["#FF8C73", "#A7E8D0", "#FDF3B8", "#E6DDFA", "#C4E6FA"];
@@ -40,6 +43,7 @@ export default function AdminDashboard() {
         <Route path="enrollments" element={<EnrollmentsPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="feed" element={<ActivityFeed />} /> {/* <-- Added Route */}
       </Routes>
     </DashboardLayout>
   );
@@ -204,6 +208,10 @@ function StudentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", age: "", gender: "", parent_id: "", class_id: "", notes: "" });
+  
+  const [photoFile, setPhotoFile] = useState(null);
+  // 1. New state to track if we should delete the existing photo
+  const [removePhoto, setRemovePhoto] = useState(false);
 
   const load = async () => {
     const [s, p, c] = await Promise.all([
@@ -219,10 +227,37 @@ function StudentsPage() {
     e.preventDefault();
     try {
       const payload = { ...form, age: Number(form.age), parent_id: form.parent_id ? Number(form.parent_id) : null, class_id: form.class_id ? Number(form.class_id) : null };
-      if (editing) await api.put(`/admin/students/${editing.id}`, payload);
-      else await api.post("/admin/students", payload);
+      
+      let targetId = editing?.id;
+
+      // Save the text details first
+      if (editing) {
+        await api.put(`/admin/students/${editing.id}`, payload);
+      } else {
+        const res = await api.post("/admin/students", payload);
+        targetId = res.data?.id; 
+      }
+
+      // 2. Handle Photo Removal
+      if (editing && removePhoto && !photoFile) {
+        await api.delete(`/admin/students/${targetId}/photo`);
+      }
+
+      // Handle New Photo Upload (this overrides removal if both happen)
+      if (photoFile && targetId) {
+        const fd = new FormData();
+        fd.append("file", photoFile);
+        await api.post(`/admin/students/${targetId}/photo`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+
       toast.success(editing ? "Student updated" : "Student added");
-      setShowForm(false); setEditing(null); load();
+      setShowForm(false); 
+      setEditing(null); 
+      setPhotoFile(null); 
+      setRemovePhoto(false); // Reset removal state
+      load();
     } catch (err) { toast.error(formatApiError(err)); }
   };
 
@@ -235,6 +270,16 @@ function StudentsPage() {
   const startEdit = (s) => {
     setEditing(s);
     setForm({ name: s.name, age: s.age || "", gender: s.gender || "", parent_id: s.parent_id || "", class_id: s.class_id || "", notes: s.notes || "" });
+    setPhotoFile(null); 
+    setRemovePhoto(false); // Reset removal state when opening
+    setShowForm(true);
+  };
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ name: "", age: "", gender: "", parent_id: "", class_id: "", notes: "" });
+    setPhotoFile(null); 
+    setRemovePhoto(false); // Reset removal state when opening
     setShowForm(true);
   };
 
@@ -242,7 +287,7 @@ function StudentsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <p className="text-slate-500">{students.length} students</p>
-        <button data-testid="add-student-btn" onClick={() => { setEditing(null); setForm({ name: "", age: "", gender: "", parent_id: "", class_id: "", notes: "" }); setShowForm(true); }} className="btn-primary">+ Add Student</button>
+        <button data-testid="add-student-btn" onClick={openAdd} className="btn-primary">+ Add Student</button>
       </div>
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="students-grid">
         {students.map((s) => (
@@ -271,7 +316,6 @@ function StudentsPage() {
             <div className="flex gap-2 mt-4 items-center flex-wrap">
               <button onClick={() => startEdit(s)} className="text-sm font-bold text-[#FF8C73]">Edit</button>
               <button onClick={() => handleDelete(s.id)} className="text-sm font-bold text-red-500">Delete</button>
-              <PhotoUploader studentId={s.id} onUploaded={load} />
             </div>
           </div>
         ))}
@@ -304,7 +348,47 @@ function StudentsPage() {
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <button type="submit" className="btn-primary w-full" data-testid="student-save-btn">{editing ? "Update" : "Create"}</button>
+
+            {/* 3. Upgraded Photo Input Field with Remove Logic */}
+            <div className="bg-[#FFFAF5] p-4 rounded-2xl border border-[#FFD4C7]">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 block">
+                Profile Photo
+              </label>
+
+              {/* Show "Remove" button if the student already has a photo */}
+              {editing?.photo_url && !removePhoto && !photoFile && (
+                <div className="mb-3 flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200">
+                  <span className="text-sm font-semibold text-slate-600 pl-2">✅ Current photo active</span>
+                  <button type="button" onClick={() => setRemovePhoto(true)} className="text-xs font-bold text-red-500 px-3 py-1 hover:bg-red-50 rounded-lg">
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              {/* Show "Undo" button if they clicked remove */}
+              {removePhoto && (
+                <div className="mb-3 flex items-center justify-between bg-red-50 p-2 rounded-xl border border-red-100">
+                  <span className="text-sm font-semibold text-red-600 pl-2">🗑 Photo will be deleted on save</span>
+                  <button type="button" onClick={() => setRemovePhoto(false)} className="text-xs font-bold text-slate-500 px-3 py-1 hover:bg-slate-200 rounded-lg">
+                    Undo
+                  </button>
+                </div>
+              )}
+
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={(e) => {
+                  setPhotoFile(e.target.files?.[0]);
+                  if (e.target.files?.[0]) setRemovePhoto(false); // Cancel removal if they pick a new file
+                }}
+                className="w-full rounded-xl bg-white px-3 py-2 outline-none text-sm cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-[#FF8C73] file:text-white hover:file:bg-[#ff7a5c]" 
+              />
+            </div>
+
+            <button type="submit" className="btn-primary w-full" data-testid="student-save-btn">
+              {editing ? "Update Student" : "Create Student"}
+            </button>
           </form>
         </Modal>
       )}

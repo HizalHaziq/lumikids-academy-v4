@@ -17,8 +17,11 @@ async def send_email(to_email: str, subject: str, html_body: str, plain_body: st
         logger.warning(f"SMTP not configured. Would send to {to_email}: {subject}")
         return False
 
+    # FIX: Get the admin email to use as the sender address for Resend
+    sender_email = os.environ.get("ADMIN_EMAIL", "no-reply@lumikids.online")
+
     msg = EmailMessage()
-    msg["From"] = f"LumiKids Academy <{smtp_user}>"
+    msg["From"] = f"LumiKids Academy <{sender_email}>"
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.set_content(plain_body or "Please use an HTML-capable email client to view this message.")

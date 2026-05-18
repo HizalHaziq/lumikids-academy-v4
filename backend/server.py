@@ -336,9 +336,14 @@ async def admin_create_student(body: StudentIn, _: dict = Depends(require_role("
 
 @api.put("/admin/students/{student_id}")
 async def admin_update_student(student_id: int, body: StudentIn, _: dict = Depends(require_role("admin"))):
+    # 1. Fetch the existing photo so we don't accidentally erase it!
+    existing = await database.fetch_one("SELECT photo_url FROM students WHERE id = %s", (student_id,))
+    current_photo = existing["photo_url"] if existing else None
+
+    # 2. Update the student but keep the old photo safely intact
     await database.execute(
         "UPDATE students SET name=%s, age=%s, gender=%s, parent_id=%s, class_id=%s, photo_url=%s, notes=%s WHERE id=%s",
-        (body.name, body.age, body.gender, body.parent_id, body.class_id, body.photo_url, body.notes, student_id),
+        (body.name, body.age, body.gender, body.parent_id, body.class_id, current_photo, body.notes, student_id),
     )
     return {"ok": True}
 
@@ -812,6 +817,18 @@ async def upload_student_photo(
     return {"ok": True, "photo_url": photo_url}
 
 
+@api.delete("/admin/students/{student_id}/photo")
+async def delete_student_photo(student_id: int, user: dict = Depends(get_current_user)):
+    # Only admins and teachers should be able to remove student photos
+    if user["role"] not in ["admin", "teacher"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    # 3. Use your reliable database.execute method to safely clear the photo!
+    await database.execute("UPDATE students SET photo_url = NULL WHERE id = %s", (student_id,))
+        
+    return {"ok": True, "message": "Photo removed successfully"}
+
+
 # ============================================================
 # Announcements (Admin creates, all see)
 # ============================================================
@@ -933,6 +950,61 @@ async def lookup_students_by_class(class_id: int, _: dict = Depends(get_current_
         "SELECT id, name, age FROM students WHERE class_id = %s ORDER BY name", (class_id,)
     )
 
+class ActivityIn(BaseModel):
+    content: str
+    class_id: Optional[int] = None
+
+@api.get("/activities")
+async def get_activities(user: dict = Depends(get_current_user)):
+    query = """
+        SELECT a.*, u.name as author_name, u.role as author_role, c.name as class_name
+        FROM activities a
+        JOIN users u ON a.author_id = u.id
+        LEFT JOIN classes c ON a.class_id = c.id
+        ORDER BY a.created_at DESC LIMIT 50
+    """
+    return await database.fetch_all(query)
+
+@api.post("/activities")
+async def create_activity(body: ActivityIn, user: dict = Depends(get_current_user)):
+    if user["role"] not in ["admin", "teacher"]:
+        raise HTTPException(403, "Not authorized to post")
+    
+    aid = await database.execute(
+        "INSERT INTO activities (content, class_id, author_id) VALUES (%s, %s, %s)",
+        (body.content, body.class_id, user["id"])
+    )
+    return {"ok": True, "id": aid}
+
+@api.post("/activities/{activity_id}/photo")
+async def upload_activity_photo(activity_id: int, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    if user["role"] not in ["admin", "teacher"]:
+        raise HTTPException(403, "Not authorized")
+        
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "png"
+    fname = f"activity_{activity_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    
+    fpath = UPLOAD_DIR / "students" / fname 
+    
+    contents = await file.read()
+    with open(fpath, "wb") as f:
+        f.write(contents)
+        
+    photo_url = f"/api/uploads/students/{fname}"
+    await database.execute("UPDATE activities SET photo_url = %s WHERE id = %s", (photo_url, activity_id))
+    
+    return {"ok": True, "photo_url": photo_url}
+@api.delete("/activities/{activity_id}")
+async def delete_activity(activity_id: int, user: dict = Depends(get_current_user)):
+    # Only admins and teachers should be able to delete posts
+    if user["role"] not in ["admin", "teacher"]:
+        raise HTTPException(403, "Not authorized to delete")
+        
+    # In a real production app, you might also want to delete the file from the hard drive here,
+    # but for this MVP, just deleting the database record is perfect!
+    await database.execute("DELETE FROM activities WHERE id = %s", (activity_id,))
+    
+    return {"ok": True, "message": "Activity deleted"}
 
 # ============================================================
 # Mount and middleware
@@ -955,6 +1027,18 @@ app.add_middleware(
 async def on_startup():
     await database.init_pool()
     await database.init_schema()
+    await database.execute("""
+        CREATE TABLE IF NOT EXISTS activities (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            class_id INT NULL,
+            author_id INT,
+            content TEXT,
+            photo_url VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+            FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
     await seed_mod.seed_all()
     await seed_mod.write_test_credentials()
     logger.info("LumiKids backend ready.")
