@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, List
+from seed import seed_all
 
 from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
@@ -1026,6 +1027,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await database.init_pool()
+    await seed_all()
     await database.init_schema()
     await database.execute("""
         CREATE TABLE IF NOT EXISTS activities (
